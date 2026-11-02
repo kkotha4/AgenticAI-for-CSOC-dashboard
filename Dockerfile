@@ -14,7 +14,9 @@ COPY static ./static
 
 # Run as an unprivileged user that owns only the data folder.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin soc \
- && mkdir -p /data/logs /data/backups && chown -R soc:soc /data
+ && mkdir /data && chown soc:soc /data
+# Keep /data empty in the image. Docker copies image contents into a new volume when each container
+# starts, and containers starting together can collide while creating subfolders. The app creates its own.
 USER soc
 
 ENV APP_ENV=production SOC_DB_PATH=/data/soc.db SOC_AUDIT_PATH=/data/audit.jsonl SOC_LOG_DIR=/data/logs SOC_BACKUP_DIR=/data/backups
