@@ -1,0 +1,3 @@
+# For running tests. Kept out of requirements.lock, so it never reaches the production image.
+pytest==9.2.0
+pip-audit==2.10.1

@@ -1,0 +1,33 @@
+/* Design tokens: the only place colors, spacing and type are defined. Use these everywhere. */
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f1f4; --surface-3: #e7e9ee;
+  --border: #e3e5ea; --border-strong: #cdd1d8;
+  --text: #15181d; --text-2: #4d5561; --text-3: #6f7782;
+  --accent: #4f46e5; --accent-hover: #4338ca; --accent-soft: #eef0ff; --on-accent: #ffffff;
+  /* Status colors mean state only, and always come with an icon and a label. */
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --good-soft: #e8f7e8; --warning-soft: #fff6e0; --serious-soft: #fdeee8; --critical-soft: #fbeaea;
+  /* Chart series: validated palette from the data-viz method, in fixed order. Never use these for status. */
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4;
+  --series-muted: #a9aeb6; --grid: #e8eaee;
+  --radius-s: 6px; --radius: 10px; --radius-l: 14px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+  --shadow-l: 0 8px 28px rgba(16, 24, 40, .12);
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0e1116; --surface: #161a21; --surface-2: #1d222b; --surface-3: #262c37;
+    --border: #272d37; --border-strong: #39414e;
+    --text: #eceef2; --text-2: #aeb5c0; --text-3: #848c98;
+    --accent: #818cf8; --accent-hover: #a5b4fc; --accent-soft: #23264a; --on-accent: #10121a;
+    --good-soft: #14291a; --warning-soft: #2e2613; --serious-soft: #2f1f18; --critical-soft: #301a1b;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+    --series-muted: #5b626c; --grid: #262c37;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-l: 0 8px 28px rgba(0, 0, 0, .5);
+  }
+}

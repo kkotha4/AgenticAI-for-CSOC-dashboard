@@ -1,0 +1,6 @@
+# Default deny: nothing reaches the build unless it's listed here.
+*
+!app/
+!static/
+!requirements.lock
+**/__pycache__/

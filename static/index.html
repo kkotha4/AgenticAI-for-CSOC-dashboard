@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOC Triage Agent</title>
+<style>[hidden] { display: none !important; }</style>
+<link rel="stylesheet" href="/static/css/theme.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+<div class="login-page" id="login" hidden>
+  <div class="login-card">
+    <div class="brand brand-login"><span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span><span><b>SOC Triage Agent</b><small>AI-assisted alert investigation</small></span></div>
+
+  <form id="login-form">
+    <label for="user">Username</label>
+    <input id="user" autocomplete="username" required>
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="current-password" required>
+    <button class="btn primary block" type="submit">Log in</button>
+    <div class="err" id="login-err" role="alert"></div>
+  </form>
+  <form id="mfa-form" hidden>
+    <p>Enter the 6-digit code from your authenticator app. Lost your device? Enter a recovery code instead.</p>
+    <label for="mfa-code">Code</label>
+    <input id="mfa-code" autocomplete="one-time-code" required>
+    <button class="btn primary block" type="submit">Verify</button>
+    <div class="err" id="mfa-err" role="alert"></div>
+  </form>
+  <form id="enroll-form" hidden>
+    <p><b>Set up multi-factor authentication for <span id="enroll-user"></span>.</b> Scan this with an authenticator app, such as Google Authenticator, Microsoft Authenticator or 1Password.</p>
+    <div id="enroll-qr" role="img" aria-label="QR code for your authenticator app"></div>
+    <p>Can't scan it? Enter this key instead:</p>
+    <div class="secret" id="enroll-secret"></div>
+    <label for="enroll-code">Then enter the 6-digit code it shows</label>
+    <input id="enroll-code" autocomplete="one-time-code" inputmode="numeric" required>
+    <button class="btn primary block" type="submit">Turn on MFA</button>
+    <div class="err" id="enroll-err" role="alert"></div>
+  </form>
+  <div id="recovery-box" hidden>
+    <p><b>Save your recovery codes.</b> Each works once if you lose your device. They won't be shown again, so keep them in a password manager.</p>
+    <div class="codes" id="recovery-codes"></div>
+    <label style="margin-top:12px"><input type="checkbox" id="recovery-saved" style="width:auto"> I've saved these codes</label>
+    <button class="btn primary block" id="recovery-done" disabled>Continue</button>
+  </div>
+  <form id="invite-form" hidden>
+    <p>You've been invited as <b id="invite-user"></b> (<span id="invite-role"></span>). Choose a password, then you'll set up MFA.</p>
+    <label for="invite-pass">Password, at least 12 characters</label>
+    <input id="invite-pass" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="invite-pass2">Password again</label>
+    <input id="invite-pass2" type="password" autocomplete="new-password" required>
+    <button class="btn primary block" type="submit">Create account</button>
+    <div class="err" id="invite-err" role="alert"></div>
+  </form>
+  <div class="err" id="invite-bad" hidden role="alert"></div>
+  </div>
+</div>
+
+<div class="shell" id="shell" hidden>
+  <nav class="sidebar" aria-label="Main">
+    <div class="brand"><span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span><span><b>SOC Triage</b><small>Agent console</small></span></div>
+    <div class="nav-items">
+      <button class="nav-item" id="nav-triage"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Investigate</button>
+      <button class="nav-item" id="nav-dashboard" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Dashboard</button>
+      <button class="nav-item" id="nav-users" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M17 4a4 4 0 010 8M22 21c0-3-2-5-4-6"/></svg>Users</button>
+    </div>
+    <div class="me" id="whoami">
+      <span class="avatar" id="me-avatar" aria-hidden="true"></span>
+      <span class="me-text"><b id="me-name"></b><small id="me-role"></small></span>
+      <button class="btn ghost small" id="logout">Log out</button>
+    </div>
+  </nav>
+
+  <div class="content">
+    <span id="view-toggle" hidden></span>
+    <main class="triage" id="app" hidden>
+      <section class="pane queue-pane" aria-label="Alert queue">
+        <div class="pane-head">
+          <h1>Alerts</h1><span class="count" id="alert-count"></span>
+        </div>
+        <div class="generate" id="generate-box" hidden>
+          <select id="scenario" aria-label="Incident to simulate">
+            <option value="">Random incident</option>
+            <option value="brute_force">Brute force</option>
+            <option value="benign_lockout">Possible false positive</option>
+            <option value="malware">Malware</option>
+            <option value="phishing">Phishing</option>
+          </select>
+          <button class="btn" id="generate">Simulate</button>
+          <div class="msg" id="generate-msg" role="status"></div>
+        </div>
+        <div class="filters" id="filters" role="group" aria-label="Filter alerts">
+          <button class="chip on" data-filter="all">All</button>
+          <button class="chip" data-filter="new">New</button>
+          <button class="chip" data-filter="critical">Critical</button>
+          <button class="chip" data-filter="done">Triaged</button>
+        </div>
+        <div class="alert-list" id="alerts"></div>
+      </section>
+
+      <section class="pane work-pane" aria-label="Investigation">
+        <div id="case-empty" class="hero">
+          <div class="hero-mark"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h2>Pick an alert to investigate</h2>
+          <p>The agent gathers evidence, checks every action against policy, and asks an analyst before changing anything.</p>
+        </div>
+        <div id="case" hidden>
+          <header class="case-head">
+            <div class="case-title">
+              <div class="case-meta"><span id="case-sev"></span><span id="case-id"></span><span id="case-source"></span></div>
+              <h2 id="case-name"></h2>
+              <p id="case-desc"></p>
+              <div class="entities" id="case-entities"></div>
+            </div>
+            <div class="case-actions" id="run-controls">
+              <div class="segment" role="radiogroup" aria-label="Mode">
+                <label><input type="radio" name="mode" value="demo" checked><span>Demo</span></label>
+                <label><input type="radio" name="mode" value="live"><span>Live AI</span></label>
+              </div>
+              <div class="segment" role="radiogroup" aria-label="Architecture">
+                <label><input type="radio" name="architecture" value="single" checked><span>Single agent</span></label>
+                <label><input type="radio" name="architecture" value="multi"><span>Specialists</span></label>
+              </div>
+              <button class="btn primary" id="go">Run investigation</button>
+            </div>
+          </header>
+          <div class="trace" id="timeline" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <aside class="pane side-pane" aria-label="Run details">
+        <section class="card">
+          <h3>Agent loop</h3>
+          <ol class="stages" id="stages">
+            <li data-stage="reason"><b>Reason</b><span>Decides the next step</span></li>
+            <li data-stage="act"><b>Act</b><span>Requests a tool</span></li>
+            <li data-stage="policy"><b>Policy</b><span>Code checks the request</span></li>
+            <li data-stage="human"><b>Human</b><span>Analyst approves changes</span></li>
+            <li data-stage="observe"><b>Observe</b><span>Reads the result as data</span></li>
+          </ol>
+        </section>
+        <section class="card">
+          <h3>This run</h3>
+          <div id="stats"><p class="empty">Nothing running yet.</p></div>
+        </section>
+        <section class="card">
+          <h3>Recent runs</h3>
+          <div id="history"><p class="empty">No runs yet.</p></div>
+        </section>
+        <details class="card">
+          <summary><h3>System health</h3></summary>
+          <h4>Job queue</h4>
+          <div id="queue"><p class="empty">Loading…</p></div>
+          <h4>Tool cache</h4>
+          <div id="cache"><p class="empty">Loading…</p></div>
+          <button class="btn small" id="flush">Flush cache</button>
+        </details>
+      </aside>
+    </main>
+
+    <div class="dash-page" id="obs" hidden></div>
+
+    <div class="users-page" id="users" hidden>
+      <div class="page-head"><h1>Users</h1><p>People get access by invitation, and set up MFA on their first login.</p></div>
+
+  <section>
+    <h2>Invite someone</h2>
+    <form class="invite-form" id="new-invite">
+      <div><label for="new-user">Username</label><input id="new-user" required maxlength="32" pattern="[a-z0-9][a-z0-9._\-]{1,31}" title="Lowercase letters, numbers, dots, dashes or underscores"></div>
+      <div><label for="new-role">Role</label><select id="new-role"></select></div>
+      <button class="btn primary" type="submit">Create invitation</button>
+    </form>
+    <div class="msg" id="invite-msg" role="status"></div>
+    <div id="invite-result" hidden>
+      <p class="msg">Send this link privately. It works once, expires in <span id="invite-hours"></span> hours, and won't be shown again.</p>
+      <div class="secret" id="invite-link"></div>
+    </div>
+  </section>
+  <section><h2>Open invitations</h2><div class="table-wrap" id="invites-table"></div></section>
+  <section><h2>Users</h2><div class="table-wrap" id="users-table"></div><div class="msg" id="users-msg" role="status"></div></section>
+
+    </div>
+  </div>
+</div>
+<div id="tip" hidden></div>
+<script src="/static/js/core.js"></script>
+<script src="/static/js/triage.js"></script>
+<script src="/static/js/auth.js"></script>
+<script src="/static/js/dashboard.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>

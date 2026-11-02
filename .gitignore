@@ -1,0 +1,10 @@
+.venv/
+audit.jsonl
+__pycache__/
+soc.db*
+logs/
+.mfa.key
+.DS_Store
+.env
+secrets/
+backups/

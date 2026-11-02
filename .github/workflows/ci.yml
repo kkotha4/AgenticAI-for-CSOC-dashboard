@@ -1,0 +1,141 @@
+# Every push and pull request: unit -> component -> browser -> real container stack.
+# A version tag (git tag v1.0.0 && git push --tags) also publishes an image and a release, only if all of that passes.
+# Nothing here deploys to a server, and no job makes real model calls.
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.*
+      - run: pip install -r requirements.lock -r requirements-dev.txt
+      - name: Unit tests
+        run: python scripts/run_tests.py unit
+      - name: Known vulnerabilities in dependencies
+        run: pip-audit -r requirements.lock --no-deps --disable-pip
+
+  component:
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.*
+      - run: pip install -r requirements.lock -r requirements-dev.txt
+      - name: Component tests (real server, worker and broker, with fake models)
+        run: python scripts/run_tests.py component
+
+  browser:
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.*
+      - run: pip install -r requirements.lock -r requirements-dev.txt
+      - name: Whole journey in Chrome
+        env:
+          CHROME_FLAGS: --no-sandbox  # the runner's Chrome can't use its sandbox
+        run: python scripts/run_tests.py e2e
+
+  container:
+    needs: [component, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Throwaway configuration
+        run: |
+          printf 'DOMAIN=localhost\n' > .env
+          mkdir secrets
+          head -c 32 /dev/urandom > secrets/mfa.key
+          sudo chown 10001 secrets/mfa.key
+          sudo chmod 400 secrets/mfa.key
+      - name: The Compose file is valid
+        run: docker compose config --quiet
+      - name: Build and start the whole stack
+        run: docker compose up -d --build
+      - name: Smoke test through HTTPS
+        run: |
+          for i in $(seq 1 40); do
+            curl -kfsS https://localhost/readyz | grep -q '"ok"' && break
+            sleep 3
+            if [ "$i" = 40 ]; then echo "The stack never became ready"; exit 1; fi
+          done
+          curl -kfsS -D headers.txt -o /dev/null https://localhost/
+          grep -qi '^strict-transport-security:' headers.txt
+          grep -qi '^content-security-policy:' headers.txt
+          test "$(curl -ks -o /dev/null -w '%{http_code}' https://localhost/docs)" = 404
+          test "$(curl -ks -o /dev/null -w '%{http_code}' https://localhost/metrics)" = 401
+          test "$(curl -ks -o /dev/null -w '%{http_code}' https://localhost/api/runs)" = 401
+          docker compose ps
+      - name: Containers don't run as root, and workers can't see the MFA key
+        run: |
+          test "$(docker compose exec -T web id -u)" = 10001
+          test "$(docker compose exec -T worker id -u)" = 10001
+          docker compose exec -T web test -r /run/secrets/mfa_key
+          ! docker compose exec -T worker test -e /run/secrets/mfa_key
+      - name: A backup completes
+        run: docker compose exec -T web python -m app.backup
+      - name: Logs if anything failed
+        if: failure()
+        run: docker compose logs --tail=80
+      - name: Stop
+        if: always()
+        run: docker compose down -v
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [unit, component, browser, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write   # to create the GitHub release
+      packages: write   # to publish the image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Publish the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag

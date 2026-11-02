@@ -1,0 +1,86 @@
+# Production stack for one server. Secrets live in .env and secrets/, never in the image.
+# Only Caddy publishes ports. Everything else talks over private networks.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on: [web]
+
+  web:
+    build: .
+    restart: unless-stopped
+    # Only the MFA key: this container has no model API keys, so compromising it doesn't expose them.
+    environment:
+      COOKIE_SECURE: "1"
+      SOC_MFA_KEY_PATH: /run/secrets/mfa_key
+      BROKER_HOST: broker
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+    secrets: [mfa_key]
+    volumes: [data:/data]
+    networks: [edge, internal]
+    depends_on: [broker]
+    # Accepts the forwarded client address because only Caddy can reach this port. Rate limits rely on it.
+    command: ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    # Only workers call models, so only they get API keys, and they have no MFA key and no public network.
+    environment:
+      BROKER_HOST: broker
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes: [data:/data]
+    networks: [internal, egress]
+    depends_on: [broker]
+    deploy:
+      replicas: 2
+    stop_grace_period: 30s  # finish current work when possible; a killed job resumes on another worker
+    healthcheck: {disable: true}
+    command: ["python", "-m", "app.worker", "--concurrency", "2"]
+
+  broker:
+    build: .
+    restart: unless-stopped
+    environment:
+      BROKER_BIND: 0.0.0.0
+    networks: [internal]  # no data volume: the broker only passes "go look" messages
+    healthcheck: {disable: true}
+    command: ["python", "-m", "app.broker"]
+
+  # Optional simulated alerts: docker compose --profile demo up -d
+  alert-stream:
+    build: .
+    profiles: [demo]
+    restart: unless-stopped
+    environment:
+      BROKER_HOST: broker
+    volumes: [data:/data]
+    networks: [internal]
+    depends_on: [broker]
+    healthcheck: {disable: true}
+    command: ["python", "-m", "app.alertgen", "--every", "${ALERT_EVERY_SECONDS:-120}"]
+
+networks:
+  edge: {}
+  internal: {internal: true}  # no route to the internet
+  egress: {}                  # workers reach model APIs through this
+
+volumes:
+  data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  mfa_key:
+    file: ./secrets/mfa.key

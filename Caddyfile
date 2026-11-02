@@ -1,0 +1,8 @@
+# Caddy gets and renews HTTPS certificates automatically.
+{$DOMAIN} {
+	encode gzip
+	# flush_interval -1 sends live investigation events immediately instead of buffering them.
+	reverse_proxy web:8000 {
+		flush_interval -1
+	}
+}

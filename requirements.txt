@@ -1,0 +1,6 @@
+anthropic>=2.3
+google-genai>=2.34
+fastapi>=0.115
+uvicorn[standard]>=0.30
+segno>=1.6
+cryptography>=46
